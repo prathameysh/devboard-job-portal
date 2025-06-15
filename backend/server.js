@@ -1,46 +1,39 @@
-require("dotenv").config()
-const express = require("express")
-const mongoose = require("mongoose")
-const bcrypt = require("bcryptjs")
-const jwt = require("jsonwebtoken")
-const cors = require("cors")
-const multer = require("multer")
-const path = require("path")
-const fs = require("fs")
+const express = require("express");
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const cors = require("cors");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+require("dotenv").config();
 
-const app = express()
-const PORT = process.env.PORT || 5000
-
-// ✅ IMPROVED: Require JWT_SECRET in production
-const JWT_SECRET = process.env.JWT_SECRET
-if (!JWT_SECRET) {
-  console.error("JWT_SECRET environment variable is required")
-  process.exit(1)
-}
-
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/devboard"
+const app = express();
+const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const MONGODB_URI =
+  process.env.MONGODB_URI || "mongodb://localhost:27017/devboard";
 
 // Middleware
-app.use(cors())
-app.use(express.json({ limit: "10mb" })) // ✅ IMPROVED: Add size limit
-app.use("/uploads", express.static("uploads"))
+app.use(cors());
+app.use(express.json({ limit: "10mb" }));
+app.use("/uploads", express.static("uploads"));
 
 // Create uploads directory if it doesn't exist
 if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads", { recursive: true }) // ✅ IMPROVED: recursive option
+  fs.mkdirSync("uploads");
 }
 
-// ✅ IMPROVED: File upload configuration with better security
+// File upload configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/")
+    cb(null, "uploads/");
   },
   filename: (req, file, cb) => {
-    // ✅ IMPROVED: Sanitize filename and add timestamp
-    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, "_")
-    cb(null, Date.now() + "-" + sanitizedName)
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + "-" + file.originalname);
   },
-})
+});
 
 const upload = multer({
   storage: storage,
@@ -49,253 +42,181 @@ const upload = multer({
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ]
+    ];
+
     if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true)
+      cb(null, true);
     } else {
-      cb(new Error("Only PDF, DOC, and DOCX files are allowed"))
+      cb(new Error("Only PDF, DOC, and DOCX files are allowed"), false);
     }
   },
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
-    files: 1, // Only one file per request
+    files: 1, // Only one file at a time
   },
-})
+});
 
-// ✅ IMPROVED: MongoDB connection with better error handling
+// MongoDB Connection with error handling
 mongoose
   .connect(MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
   .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => {
-    console.error("MongoDB connection error:", err)
-    process.exit(1)
-  })
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-// ✅ IMPROVED: User Schema with validation
+// User Schema
 const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, "Name is required"],
-    trim: true,
-    minlength: [2, "Name must be at least 2 characters"],
-    maxlength: [50, "Name cannot exceed 50 characters"],
-  },
+  name: { type: String, required: true, trim: true },
   email: {
     type: String,
-    required: [true, "Email is required"],
+    required: true,
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email"],
   },
-  passwordHash: {
-    type: String,
-    required: [true, "Password is required"],
-    minlength: [6, "Password must be at least 6 characters"],
-  },
-  role: {
-    type: String,
-    enum: {
-      values: ["user", "admin"],
-      message: "Role must be either user or admin",
-    },
-    default: "user",
-  },
+  passwordHash: { type: String, required: true },
+  role: { type: String, enum: ["user", "admin"], default: "user" },
   createdAt: { type: Date, default: Date.now },
-})
+});
 
-// ✅ IMPROVED: Add index for email lookups
-userSchema.index({ email: 1 })
+const User = mongoose.model("User", userSchema);
 
-const User = mongoose.model("User", userSchema)
-
-// ✅ IMPROVED: Job Schema with validation
+// Job Schema
 const jobSchema = new mongoose.Schema({
-  title: {
-    type: String,
-    required: [true, "Job title is required"],
-    trim: true,
-    minlength: [3, "Title must be at least 3 characters"],
-    maxlength: [100, "Title cannot exceed 100 characters"],
-  },
-  company: {
-    type: String,
-    required: [true, "Company name is required"],
-    trim: true,
-    minlength: [2, "Company name must be at least 2 characters"],
-    maxlength: [100, "Company name cannot exceed 100 characters"],
-  },
-  description: {
-    type: String,
-    required: [true, "Job description is required"],
-    minlength: [10, "Description must be at least 10 characters"],
-    maxlength: [5000, "Description cannot exceed 5000 characters"],
-  },
-  requirements: [
-    {
-      type: String,
-      trim: true,
-      maxlength: [200, "Each requirement cannot exceed 200 characters"],
-    },
-  ],
-  location: {
-    type: String,
-    required: [true, "Location is required"],
-    trim: true,
-    maxlength: [100, "Location cannot exceed 100 characters"],
-  },
+  title: { type: String, required: true, trim: true },
+  company: { type: String, required: true, trim: true },
+  description: { type: String, required: true },
+  requirements: [{ type: String, trim: true }],
+  location: { type: String, required: true, trim: true },
   type: {
     type: String,
-    required: [true, "Job type is required"],
-    enum: {
-      values: ["Full-time", "Part-time", "Contract", "Internship"],
-      message: "Job type must be Full-time, Part-time, Contract, or Internship",
-    },
+    required: true,
+    enum: ["Full-time", "Part-time", "Contract", "Internship"],
   },
-  salary: {
-    type: String,
-    trim: true,
-    maxlength: [50, "Salary cannot exceed 50 characters"],
-  },
+  salary: { type: String, trim: true },
   postedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: [true, "Posted by user is required"],
+    required: true,
   },
   postedAt: { type: Date, default: Date.now },
-  status: {
-    type: String,
-    enum: {
-      values: ["active", "closed"],
-      message: "Status must be active or closed",
-    },
-    default: "active",
-  },
-})
+  status: { type: String, enum: ["active", "closed"], default: "active" },
+});
 
-// ✅ IMPROVED: Add indexes for search performance
-jobSchema.index({ title: "text", company: "text", description: "text" })
-jobSchema.index({ location: 1 })
-jobSchema.index({ type: 1 })
-jobSchema.index({ status: 1 })
-jobSchema.index({ postedAt: -1 })
+const Job = mongoose.model("Job", jobSchema);
 
-const Job = mongoose.model("Job", jobSchema)
-
-// ✅ IMPROVED: Application Schema with validation
+// Application Schema
 const applicationSchema = new mongoose.Schema({
-  jobId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Job",
-    required: [true, "Job ID is required"],
-  },
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: [true, "User ID is required"],
-  },
-  resumeFilePath: {
-    type: String,
-    required: [true, "Resume file path is required"],
-  },
-  coverLetter: {
-    type: String,
-    trim: true,
-    maxlength: [2000, "Cover letter cannot exceed 2000 characters"],
-  },
+  jobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  resumeFilePath: { type: String, required: true },
+  coverLetter: { type: String, trim: true },
   status: {
     type: String,
-    enum: {
-      values: ["pending", "reviewed", "shortlisted", "rejected"],
-      message: "Status must be pending, reviewed, shortlisted, or rejected",
-    },
+    enum: ["pending", "reviewed", "shortlisted", "rejected"],
     default: "pending",
   },
   appliedAt: { type: Date, default: Date.now },
-})
+});
 
-// ✅ IMPROVED: Add compound index to prevent duplicate applications
-applicationSchema.index({ jobId: 1, userId: 1 }, { unique: true })
-applicationSchema.index({ status: 1 })
-applicationSchema.index({ appliedAt: -1 })
+// Ensure unique application per user per job
+applicationSchema.index({ jobId: 1, userId: 1 }, { unique: true });
 
-const Application = mongoose.model("Application", applicationSchema)
+const Application = mongoose.model("Application", applicationSchema);
 
-// ✅ IMPROVED: Auth Middleware with better error handling
+// SavedJob Schema
+const savedJobSchema = new mongoose.Schema({
+  jobId: { type: mongoose.Schema.Types.ObjectId, ref: "Job", required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  savedAt: { type: Date, default: Date.now },
+});
+
+// Ensure unique saved job per user per job
+savedJobSchema.index({ jobId: 1, userId: 1 }, { unique: true });
+
+const SavedJob = mongoose.model("SavedJob", savedJobSchema);
+
+// Auth Middleware
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"]
-  const token = authHeader && authHeader.split(" ")[1]
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
-    return res.status(401).json({ error: "Access token required" })
+    return res.status(401).json({ error: "Access token required" });
   }
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      if (err.name === "TokenExpiredError") {
-        return res.status(401).json({ error: "Token expired" })
-      }
-      return res.status(403).json({ error: "Invalid token" })
+      return res.status(403).json({ error: "Invalid or expired token" });
     }
-    req.user = user
-    next()
-  })
-}
+    req.user = user;
+    next();
+  });
+};
 
-// ✅ IMPROVED: Admin Middleware with better error handling
+// Admin Middleware
 const requireAdmin = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Authentication required" })
-  }
   if (req.user.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" })
+    return res.status(403).json({ error: "Admin access required" });
   }
-  next()
-}
+  next();
+};
 
-// ✅ IMPROVED: Input validation middleware
-const validateInput = (schema) => {
-  return (req, res, next) => {
-    const { error } = schema.validate(req.body)
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message })
-    }
-    next()
-  }
-}
+// Input validation helper
+const validateEmail = (email) => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
 
 // Routes
 
-// ✅ IMPROVED: POST /register with better validation
+// POST /register - Register user/admin
 app.post("/register", async (req, res) => {
   try {
-    const { name, email, password, role = "user" } = req.body
+    const { name, email, password, role = "user" } = req.body;
 
-    // Input validation
+    // Validation
     if (!name || !email || !password) {
-      return res.status(400).json({ error: "Name, email, and password are required" })
+      return res
+        .status(400)
+        .json({ error: "Name, email, and password are required" });
+    }
+
+    if (name.trim().length < 2) {
+      return res
+        .status(400)
+        .json({ error: "Name must be at least 2 characters long" });
+    }
+
+    if (!validateEmail(email)) {
+      return res
+        .status(400)
+        .json({ error: "Please provide a valid email address" });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ error: "Password must be at least 6 characters" })
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters long" });
     }
 
     if (!["user", "admin"].includes(role)) {
-      return res.status(400).json({ error: "Role must be 'user' or 'admin'" })
+      return res.status(400).json({ error: "Invalid role specified" });
     }
 
     // Check if user exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() })
+    const existingUser = await User.findOne({
+      email: email.toLowerCase().trim(),
+    });
     if (existingUser) {
-      return res.status(400).json({ error: "User already exists with this email" })
+      return res
+        .status(400)
+        .json({ error: "User with this email already exists" });
     }
 
     // Hash password
-    const saltRounds = 12 // ✅ IMPROVED: Increased from default 10
-    const passwordHash = await bcrypt.hash(password, saltRounds)
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // Create user
     const user = new User({
@@ -303,19 +224,15 @@ app.post("/register", async (req, res) => {
       email: email.toLowerCase().trim(),
       passwordHash,
       role,
-    })
-    await user.save()
+    });
+    await user.save();
 
     // Generate token
     const token = jwt.sign(
-      {
-        userId: user._id,
-        email: user.email,
-        role: user.role,
-      },
+      { userId: user._id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: "24h" },
-    )
+      { expiresIn: "24h" }
+    );
 
     res.status(201).json({
       token,
@@ -325,48 +242,52 @@ app.post("/register", async (req, res) => {
         email: user.email,
         role: user.role,
       },
-    })
+    });
   } catch (error) {
-    console.error("Registration error:", error)
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message })
+    console.error("Registration error:", error);
+    if (error.code === 11000) {
+      return res
+        .status(400)
+        .json({ error: "User with this email already exists" });
     }
-    res.status(500).json({ error: "Server error during registration" })
+    res.status(500).json({ error: "Server error during registration" });
   }
-})
+});
 
-// ✅ IMPROVED: POST /login with better validation and security
+// POST /login - Login
 app.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body
+    const { email, password } = req.body;
 
-    // Input validation
+    // Validation
     if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" })
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    if (!validateEmail(email)) {
+      return res
+        .status(400)
+        .json({ error: "Please provide a valid email address" });
     }
 
     // Find user
-    const user = await User.findOne({ email: email.toLowerCase().trim() })
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
-      return res.status(400).json({ error: "Invalid credentials" })
+      return res.status(400).json({ error: "Invalid email or password" });
     }
 
     // Check password
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash)
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
-      return res.status(400).json({ error: "Invalid credentials" })
+      return res.status(400).json({ error: "Invalid email or password" });
     }
 
     // Generate token
     const token = jwt.sign(
-      {
-        userId: user._id,
-        email: user.email,
-        role: user.role,
-      },
+      { userId: user._id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: "24h" },
-    )
+      { expiresIn: "24h" }
+    );
 
     res.json({
       token,
@@ -376,467 +297,744 @@ app.post("/login", async (req, res) => {
         email: user.email,
         role: user.role,
       },
-    })
+    });
   } catch (error) {
-    console.error("Login error:", error)
-    res.status(500).json({ error: "Server error during login" })
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Server error during login" });
   }
-})
+});
 
-// ✅ IMPROVED: GET /jobs with better search and pagination
+// GET /jobs - Fetch all job posts
 app.get("/jobs", async (req, res) => {
   try {
-    const { search, location, type, page = 1, limit = 10 } = req.query
+    const { search, location, type, page = 1, limit = 10 } = req.query;
 
-    // Validate pagination parameters
-    const pageNum = Math.max(1, Number.parseInt(page))
-    const limitNum = Math.min(50, Math.max(1, Number.parseInt(limit))) // Max 50 items per page
+    const query = { status: "active" };
 
-    const query = { status: "active" }
-
-    // Search functionality
     if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), "i");
       query.$or = [
-        { title: { $regex: search.trim(), $options: "i" } },
-        { company: { $regex: search.trim(), $options: "i" } },
-        { description: { $regex: search.trim(), $options: "i" } },
-      ]
+        { title: searchRegex },
+        { company: searchRegex },
+        { description: searchRegex },
+      ];
     }
 
-    // Location filter
     if (location && location.trim()) {
-      query.location = { $regex: location.trim(), $options: "i" }
+      query.location = new RegExp(location.trim(), "i");
     }
 
-    // Type filter
-    if (type && type !== "all" && ["Full-time", "Part-time", "Contract", "Internship"].includes(type)) {
-      query.type = type
+    if (
+      type &&
+      type !== "all" &&
+      ["Full-time", "Part-time", "Contract", "Internship"].includes(type)
+    ) {
+      query.type = type;
     }
+
+    const pageNum = Math.max(1, Number.parseInt(page));
+    const limitNum = Math.min(50, Math.max(1, Number.parseInt(limit))); // Max 50 jobs per page
 
     const jobs = await Job.find(query)
       .populate("postedBy", "name email")
       .sort({ postedAt: -1 })
       .limit(limitNum)
-      .skip((pageNum - 1) * limitNum)
-      .lean() // ✅ IMPROVED: Use lean() for better performance
+      .skip((pageNum - 1) * limitNum);
 
-    const total = await Job.countDocuments(query)
+    const total = await Job.countDocuments(query);
 
     res.json({
       jobs,
       totalPages: Math.ceil(total / limitNum),
       currentPage: pageNum,
       total,
-    })
+    });
   } catch (error) {
-    console.error("Jobs fetch error:", error)
-    res.status(500).json({ error: "Server error while fetching jobs" })
+    console.error("Jobs fetch error:", error);
+    res.status(500).json({ error: "Server error while fetching jobs" });
   }
-})
+});
 
-// ✅ IMPROVED: POST /jobs with better validation
+// POST /jobs - Admin: Create job
 app.post("/jobs", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { title, company, description, requirements, location, type, salary } = req.body
+    const {
+      title,
+      company,
+      description,
+      requirements,
+      location,
+      type,
+      salary,
+    } = req.body;
 
-    // Input validation
+    // Validation
     if (!title || !company || !description || !location || !type) {
-      return res.status(400).json({
-        error: "Title, company, description, location, and type are required",
-      })
+      return res
+        .status(400)
+        .json({
+          error: "Title, company, description, location, and type are required",
+        });
+    }
+
+    if (title.trim().length < 3) {
+      return res
+        .status(400)
+        .json({ error: "Job title must be at least 3 characters long" });
+    }
+
+    if (company.trim().length < 2) {
+      return res
+        .status(400)
+        .json({ error: "Company name must be at least 2 characters long" });
+    }
+
+    if (description.trim().length < 10) {
+      return res
+        .status(400)
+        .json({ error: "Job description must be at least 10 characters long" });
     }
 
     if (!["Full-time", "Part-time", "Contract", "Internship"].includes(type)) {
-      return res.status(400).json({
-        error: "Type must be Full-time, Part-time, Contract, or Internship",
-      })
+      return res.status(400).json({ error: "Invalid job type" });
     }
 
-    // Process requirements
-    let processedRequirements = []
-    if (requirements) {
-      if (typeof requirements === "string") {
-        processedRequirements = requirements
-          .split("\n")
-          .map((req) => req.trim())
-          .filter((req) => req.length > 0)
-      } else if (Array.isArray(requirements)) {
-        processedRequirements = requirements.map((req) => req.toString().trim()).filter((req) => req.length > 0)
-      }
-    }
+    console.log("Creating job for user:", req.user.userId);
 
     const job = new Job({
       title: title.trim(),
       company: company.trim(),
       description: description.trim(),
-      requirements: processedRequirements,
+      requirements: requirements
+        ? requirements
+            .split("\n")
+            .filter((req) => req.trim())
+            .map((req) => req.trim())
+        : [],
       location: location.trim(),
       type,
-      salary: salary ? salary.trim() : undefined,
+      salary: salary ? salary.trim() : "",
       postedBy: req.user.userId,
-    })
+    });
 
-    await job.save()
-    await job.populate("postedBy", "name email")
+    const savedJob = await job.save();
+    console.log("Job saved:", savedJob._id);
 
-    res.status(201).json(job)
+    await savedJob.populate("postedBy", "name email");
+
+    res.status(201).json(savedJob);
   } catch (error) {
-    console.error("Job creation error:", error)
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message })
-    }
-    res.status(500).json({ error: "Server error while creating job" })
+    console.error("Job creation error:", error);
+    res.status(500).json({ error: "Server error while creating job" });
   }
-})
+});
 
-// ✅ IMPROVED: GET /jobs/:id with better error handling
+// DELETE /jobs/:id - Admin: Delete job
+app.delete("/jobs/:id", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid job ID" });
+    }
+
+    // Find the job and verify it belongs to this admin
+    const job = await Job.findOne({
+      _id: req.params.id,
+      postedBy: req.user.userId,
+    });
+    if (!job) {
+      return res
+        .status(404)
+        .json({
+          error: "Job not found or you don't have permission to delete it",
+        });
+    }
+
+    // Check if there are any applications for this job
+    const applicationCount = await Application.countDocuments({
+      jobId: req.params.id,
+    });
+
+    if (applicationCount > 0) {
+      // Instead of deleting, mark as closed if there are applications
+      job.status = "closed";
+      await job.save();
+      return res.json({
+        message: "Job marked as closed due to existing applications",
+        job,
+      });
+    }
+
+    // Delete the job if no applications exist
+    await Job.findByIdAndDelete(req.params.id);
+    res.json({ message: "Job deleted successfully" });
+  } catch (error) {
+    console.error("Job deletion error:", error);
+    res.status(500).json({ error: "Server error while deleting job" });
+  }
+});
+
+// GET /jobs/:id - Job details
 app.get("/jobs/:id", async (req, res) => {
   try {
-    const { id } = req.params
-
-    // Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid job ID format" })
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid job ID" });
     }
 
-    const job = await Job.findById(id).populate("postedBy", "name email").lean()
-
+    const job = await Job.findById(req.params.id).populate(
+      "postedBy",
+      "name email"
+    );
     if (!job) {
-      return res.status(404).json({ error: "Job not found" })
+      return res.status(404).json({ error: "Job not found" });
     }
-
-    res.json(job)
+    res.json(job);
   } catch (error) {
-    console.error("Job fetch error:", error)
-    res.status(500).json({ error: "Server error while fetching job" })
+    console.error("Job detail fetch error:", error);
+    res.status(500).json({ error: "Server error while fetching job details" });
   }
-})
+});
 
-// ✅ IMPROVED: POST /apply with better validation and error handling
-app.post("/apply", authenticateToken, upload.single("resume"), async (req, res) => {
-  try {
-    const { jobId, coverLetter } = req.body
-
-    // Validate inputs
-    if (!jobId) {
-      return res.status(400).json({ error: "Job ID is required" })
+// POST /apply - Upload resume + apply
+app.post("/apply", authenticateToken, (req, res) => {
+  upload.single("resume")(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res
+            .status(400)
+            .json({ error: "File size too large. Maximum size is 5MB." });
+        }
+        return res
+          .status(400)
+          .json({ error: "File upload error: " + err.message });
+      }
+      return res.status(400).json({ error: err.message });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(jobId)) {
-      return res.status(400).json({ error: "Invalid job ID format" })
+    try {
+      const { jobId, coverLetter } = req.body;
+
+      if (!jobId) {
+        return res.status(400).json({ error: "Job ID is required" });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(jobId)) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "Resume file is required" });
+      }
+
+      // Check if job exists and is active
+      const job = await Job.findById(jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      if (job.status !== "active") {
+        return res
+          .status(400)
+          .json({ error: "This job is no longer accepting applications" });
+      }
+
+      // Check if user already applied
+      const existingApplication = await Application.findOne({
+        jobId,
+        userId: req.user.userId,
+      });
+
+      if (existingApplication) {
+        // Clean up uploaded file since application already exists
+        fs.unlink(req.file.path, (err) => {
+          if (err) console.error("Error deleting file:", err);
+        });
+        return res
+          .status(400)
+          .json({ error: "You have already applied for this job" });
+      }
+
+      const application = new Application({
+        jobId,
+        userId: req.user.userId,
+        resumeFilePath: req.file.path,
+        coverLetter: coverLetter ? coverLetter.trim() : "",
+      });
+
+      await application.save();
+      await application.populate("userId", "name email");
+      await application.populate("jobId", "title company");
+
+      res.status(201).json(application);
+    } catch (error) {
+      console.error("Application error:", error);
+      // Clean up uploaded file on error
+      if (req.file) {
+        fs.unlink(req.file.path, (err) => {
+          if (err) console.error("Error deleting file:", err);
+        });
+      }
+
+      if (error.code === 11000) {
+        return res
+          .status(400)
+          .json({ error: "You have already applied for this job" });
+      }
+      res
+        .status(500)
+        .json({ error: "Server error while submitting application" });
     }
+  });
+});
 
-    if (!req.file) {
-      return res.status(400).json({ error: "Resume file is required" })
+// GET /applications/:jobId - Admin: view applications for a job
+app.get(
+  "/applications/:jobId",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(req.params.jobId)) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+
+      // Verify the job belongs to this admin
+      const job = await Job.findOne({
+        _id: req.params.jobId,
+        postedBy: req.user.userId,
+      });
+      if (!job) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Job not found or you don't have permission to view its applications",
+          });
+      }
+
+      const applications = await Application.find({ jobId: req.params.jobId })
+        .populate("userId", "name email")
+        .populate("jobId", "title company")
+        .sort({ appliedAt: -1 });
+
+      res.json(applications);
+    } catch (error) {
+      console.error("Applications fetch error:", error);
+      res
+        .status(500)
+        .json({ error: "Server error while fetching applications" });
     }
-
-    // Check if job exists and is active
-    const job = await Job.findById(jobId)
-    if (!job) {
-      return res.status(404).json({ error: "Job not found" })
-    }
-
-    if (job.status !== "active") {
-      return res.status(400).json({ error: "This job is no longer accepting applications" })
-    }
-
-    // Check if user already applied
-    const existingApplication = await Application.findOne({
-      jobId,
-      userId: req.user.userId,
-    })
-
-    if (existingApplication) {
-      // Clean up uploaded file
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error("Error deleting file:", err)
-      })
-      return res.status(400).json({ error: "You have already applied for this job" })
-    }
-
-    const application = new Application({
-      jobId,
-      userId: req.user.userId,
-      resumeFilePath: req.file.path,
-      coverLetter: coverLetter ? coverLetter.trim() : undefined,
-    })
-
-    await application.save()
-    await application.populate("userId", "name email")
-    await application.populate("jobId", "title company")
-
-    res.status(201).json(application)
-  } catch (error) {
-    console.error("Application error:", error)
-
-    // Clean up uploaded file on error
-    if (req.file) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error("Error deleting file:", err)
-      })
-    }
-
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message })
-    }
-    res.status(500).json({ error: "Server error while submitting application" })
   }
-})
+);
 
-// ✅ IMPROVED: GET /applications/:jobId with better validation
-app.get("/applications/:jobId", authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { jobId } = req.params
-
-    // Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(jobId)) {
-      return res.status(400).json({ error: "Invalid job ID format" })
-    }
-
-    // Check if job exists and belongs to the admin
-    const job = await Job.findOne({ _id: jobId, postedBy: req.user.userId })
-    if (!job) {
-      return res.status(404).json({ error: "Job not found or access denied" })
-    }
-
-    const applications = await Application.find({ jobId })
-      .populate("userId", "name email")
-      .populate("jobId", "title company")
-      .sort({ appliedAt: -1 })
-      .lean()
-
-    res.json(applications)
-  } catch (error) {
-    console.error("Applications fetch error:", error)
-    res.status(500).json({ error: "Server error while fetching applications" })
-  }
-})
-
-// ✅ IMPROVED: GET /applications with better role-based access
+// GET /applications - Get user's applications or all applications for admin
 app.get("/applications", authenticateToken, async (req, res) => {
   try {
-    let query = {}
+    let query = {};
 
     if (req.user.role === "admin") {
       // Admin can see applications for their jobs only
-      const adminJobs = await Job.find({ postedBy: req.user.userId }).select("_id")
-      const jobIds = adminJobs.map((job) => job._id)
-      query = { jobId: { $in: jobIds } }
+      const myJobIds = await Job.find({ postedBy: req.user.userId }).select(
+        "_id"
+      );
+      const jobIds = myJobIds.map((job) => job._id);
+      query = { jobId: { $in: jobIds } };
     } else {
       // Users can only see their own applications
-      query = { userId: req.user.userId }
+      query = { userId: req.user.userId };
     }
 
     const applications = await Application.find(query)
       .populate("userId", "name email")
       .populate("jobId", "title company")
-      .sort({ appliedAt: -1 })
-      .lean()
+      .sort({ appliedAt: -1 });
 
-    res.json(applications)
+    res.json(applications);
   } catch (error) {
-    console.error("Applications fetch error:", error)
-    res.status(500).json({ error: "Server error while fetching applications" })
+    console.error("Applications fetch error:", error);
+    res.status(500).json({ error: "Server error while fetching applications" });
   }
-})
+});
 
-// ✅ IMPROVED: PUT /applications/:id with better validation
-app.put("/applications/:id", authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params
-    const { status } = req.body
+// PUT /applications/:id - Admin: update status
+app.put(
+  "/applications/:id",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { status } = req.body;
 
-    // Validate inputs
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid application ID format" })
+      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ error: "Invalid application ID" });
+      }
+
+      if (
+        !["pending", "reviewed", "shortlisted", "rejected"].includes(status)
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid status. Must be: pending, reviewed, shortlisted, or rejected",
+          });
+      }
+
+      // Find the application and verify it belongs to admin's job
+      const application = await Application.findById(req.params.id).populate(
+        "jobId"
+      );
+      if (!application) {
+        return res.status(404).json({ error: "Application not found" });
+      }
+
+      if (application.jobId.postedBy.toString() !== req.user.userId) {
+        return res
+          .status(403)
+          .json({
+            error: "You don't have permission to update this application",
+          });
+      }
+
+      application.status = status;
+      await application.save();
+
+      await application.populate("userId", "name email");
+      await application.populate("jobId", "title company");
+
+      res.json(application);
+    } catch (error) {
+      console.error("Application update error:", error);
+      res
+        .status(500)
+        .json({ error: "Server error while updating application" });
     }
-
-    if (!["pending", "reviewed", "shortlisted", "rejected"].includes(status)) {
-      return res.status(400).json({ error: "Invalid status value" })
-    }
-
-    // Find application and check if it belongs to admin's job
-    const application = await Application.findById(id).populate("jobId")
-    if (!application) {
-      return res.status(404).json({ error: "Application not found" })
-    }
-
-    if (application.jobId.postedBy.toString() !== req.user.userId) {
-      return res.status(403).json({ error: "Access denied" })
-    }
-
-    // Update application
-    application.status = status
-    await application.save()
-
-    await application.populate("userId", "name email")
-    await application.populate("jobId", "title company")
-
-    res.json(application)
-  } catch (error) {
-    console.error("Application update error:", error)
-    res.status(500).json({ error: "Server error while updating application" })
   }
-})
+);
 
-// ✅ IMPROVED: GET /dashboard-data with better aggregation
-app.get("/dashboard-data", authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const adminId = req.user.userId
+// GET /dashboard-data - Admin: return stats
+app.get(
+  "/dashboard-data",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      // Get stats for jobs posted by this admin only
+      const totalJobs = await Job.countDocuments({ postedBy: req.user.userId });
+      const activeJobs = await Job.countDocuments({
+        postedBy: req.user.userId,
+        status: "active",
+      });
 
-    // Get admin's jobs
-    const adminJobs = await Job.find({ postedBy: adminId }).select("_id")
-    const jobIds = adminJobs.map((job) => job._id)
+      // Get applications for jobs posted by this admin
+      const myJobIds = await Job.find({ postedBy: req.user.userId }).select(
+        "_id"
+      );
+      const jobIds = myJobIds.map((job) => job._id);
 
-    // Calculate stats
-    const [totalJobs, activeJobs, totalApplications, pendingApplications] = await Promise.all([
-      Job.countDocuments({ postedBy: adminId }),
-      Job.countDocuments({ postedBy: adminId, status: "active" }),
-      Application.countDocuments({ jobId: { $in: jobIds } }),
-      Application.countDocuments({ jobId: { $in: jobIds }, status: "pending" }),
-    ])
+      const totalApplications = await Application.countDocuments({
+        jobId: { $in: jobIds },
+      });
+      const pendingApplications = await Application.countDocuments({
+        jobId: { $in: jobIds },
+        status: "pending",
+      });
 
-    // Get applications by month for chart (last 6 months)
-    const sixMonthsAgo = new Date()
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+      // Get applications by month for chart (for this admin's jobs only)
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-    const applicationsByMonth = await Application.aggregate([
-      {
-        $match: {
-          jobId: { $in: jobIds },
-          appliedAt: { $gte: sixMonthsAgo },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            year: { $year: "$appliedAt" },
-            month: { $month: "$appliedAt" },
+      const applicationsByMonth = await Application.aggregate([
+        {
+          $match: {
+            jobId: { $in: jobIds },
+            appliedAt: { $gte: sixMonthsAgo },
           },
-          count: { $sum: 1 },
         },
-      },
-      { $sort: { "_id.year": 1, "_id.month": 1 } },
-    ])
+        {
+          $group: {
+            _id: {
+              year: { $year: "$appliedAt" },
+              month: { $month: "$appliedAt" },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1 } },
+      ]);
 
-    // Get applications by status for pie chart
-    const applicationsByStatus = await Application.aggregate([
-      { $match: { jobId: { $in: jobIds } } },
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 },
+      // Get applications by status for pie chart (for this admin's jobs only)
+      const applicationsByStatus = await Application.aggregate([
+        { $match: { jobId: { $in: jobIds } } },
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+          },
         },
-      },
-    ])
+      ]);
 
-    // Get recent jobs with application counts
-    const recentJobs = await Job.aggregate([
-      { $match: { postedBy: mongoose.Types.ObjectId(adminId) } },
-      {
-        $lookup: {
-          from: "applications",
-          localField: "_id",
-          foreignField: "jobId",
-          as: "applications",
+      // Get recent jobs with application counts (for this admin only)
+      const recentJobs = await Job.aggregate([
+        { $match: { postedBy: new mongoose.Types.ObjectId(req.user.userId) } },
+        {
+          $lookup: {
+            from: "applications",
+            localField: "_id",
+            foreignField: "jobId",
+            as: "applications",
+          },
         },
-      },
-      {
-        $addFields: {
-          applicationCount: { $size: "$applications" },
+        {
+          $addFields: {
+            applicationCount: { $size: "$applications" },
+          },
         },
-      },
-      { $sort: { postedAt: -1 } },
-      { $limit: 10 },
-      {
-        $project: {
-          applications: 0, // Remove applications array from output
-        },
-      },
-    ])
+        { $sort: { postedAt: -1 } },
+        { $limit: 10 },
+      ]);
 
-    res.json({
-      stats: {
-        totalJobs,
-        activeJobs,
-        totalApplications,
-        pendingApplications,
-      },
-      charts: {
-        applicationsByMonth,
-        applicationsByStatus,
-      },
-      recentJobs,
-    })
-  } catch (error) {
-    console.error("Dashboard data error:", error)
-    res.status(500).json({ error: "Server error while fetching dashboard data" })
+      res.json({
+        stats: {
+          totalJobs,
+          activeJobs,
+          totalApplications,
+          pendingApplications,
+        },
+        charts: {
+          applicationsByMonth,
+          applicationsByStatus,
+        },
+        recentJobs,
+      });
+    } catch (error) {
+      console.error("Dashboard data error:", error);
+      res
+        .status(500)
+        .json({ error: "Server error while fetching dashboard data" });
+    }
   }
-})
+);
 
-// ✅ IMPROVED: GET /my-jobs with better performance
+// GET /my-jobs - Admin: get jobs posted by admin
 app.get("/my-jobs", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const jobs = await Job.aggregate([
-      { $match: { postedBy: mongoose.Types.ObjectId(req.user.userId) } },
-      {
-        $lookup: {
-          from: "applications",
-          localField: "_id",
-          foreignField: "jobId",
-          as: "applications",
-        },
-      },
-      {
-        $addFields: {
-          applicationCount: { $size: "$applications" },
-        },
-      },
-      { $sort: { postedAt: -1 } },
-      {
-        $project: {
-          applications: 0, // Remove applications array from output
-        },
-      },
-    ])
+    const jobs = await Job.find({ postedBy: req.user.userId })
+      .sort({ postedAt: -1 })
+      .populate("postedBy", "name email");
 
-    res.json(jobs)
+    // Add application count to each job
+    const jobsWithCounts = await Promise.all(
+      jobs.map(async (job) => {
+        const applicationCount = await Application.countDocuments({
+          jobId: job._id,
+        });
+        return {
+          ...job.toObject(),
+          applicationCount,
+        };
+      })
+    );
+
+    console.log(
+      `Found ${jobsWithCounts.length} jobs for user ${req.user.userId}`
+    );
+    res.json(jobsWithCounts);
   } catch (error) {
-    console.error("My jobs fetch error:", error)
-    res.status(500).json({ error: "Server error while fetching jobs" })
+    console.error("My jobs error:", error);
+    res.status(500).json({ error: "Server error while fetching your jobs" });
   }
-})
+});
 
-// ✅ IMPROVED: Global error handler
-app.use((error, req, res, next) => {
-  console.error("Unhandled error:", error)
+// GET /resume/:filename - Serve resume files (admin only)
+app.get(
+  "/resume/:filename",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      const filePath = path.join(__dirname, "uploads", filename);
 
-  if (error instanceof multer.MulterError) {
-    if (error.code === "LIMIT_FILE_SIZE") {
-      return res.status(400).json({ error: "File too large. Maximum size is 5MB." })
+      // Security check: ensure filename doesn't contain path traversal
+      if (
+        filename.includes("..") ||
+        filename.includes("/") ||
+        filename.includes("\\")
+      ) {
+        return res.status(400).json({ error: "Invalid filename" });
+      }
+
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Resume file not found" });
+      }
+
+      // Verify the admin has permission to access this file
+      const application = await Application.findOne({
+        resumeFilePath: `uploads/${filename}`,
+      }).populate("jobId");
+
+      if (
+        !application ||
+        application.jobId.postedBy.toString() !== req.user.userId
+      ) {
+        return res
+          .status(403)
+          .json({ error: "You don't have permission to access this file" });
+      }
+
+      // Set appropriate headers
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+      res.setHeader("Content-Type", "application/octet-stream");
+
+      // Send file
+      res.sendFile(filePath);
+    } catch (error) {
+      console.error("Resume download error:", error);
+      res.status(500).json({ error: "Server error while downloading resume" });
     }
-    return res.status(400).json({ error: "File upload error" })
   }
+);
 
-  res.status(500).json({ error: "Internal server error" })
-})
+// GET /check-application/:jobId - Check if user already applied
+app.get("/check-application/:jobId", authenticateToken, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.jobId)) {
+      return res.status(400).json({ error: "Invalid job ID" });
+    }
 
-// ✅ IMPROVED: 404 handler
+    const application = await Application.findOne({
+      jobId: req.params.jobId,
+      userId: req.user.userId,
+    });
+
+    res.json({ hasApplied: !!application, application });
+  } catch (error) {
+    console.error("Check application error:", error);
+    res
+      .status(500)
+      .json({ error: "Server error while checking application status" });
+  }
+});
+
+// POST /save-job - Save a job
+app.post("/save-job", authenticateToken, async (req, res) => {
+  try {
+    const { jobId } = req.body;
+
+    if (!jobId) {
+      return res.status(400).json({ error: "Job ID is required" });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(jobId)) {
+      return res.status(400).json({ error: "Invalid job ID" });
+    }
+
+    // Check if job exists
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    // Check if already saved
+    const existingSave = await SavedJob.findOne({
+      jobId,
+      userId: req.user.userId,
+    });
+
+    if (existingSave) {
+      return res.status(400).json({ error: "Job already saved" });
+    }
+
+    const savedJob = new SavedJob({
+      jobId,
+      userId: req.user.userId,
+    });
+
+    await savedJob.save();
+    res.status(201).json({ message: "Job saved successfully" });
+  } catch (error) {
+    console.error("Save job error:", error);
+    res.status(500).json({ error: "Server error while saving job" });
+  }
+});
+
+// DELETE /save-job/:jobId - Unsave a job
+app.delete("/save-job/:jobId", authenticateToken, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.jobId)) {
+      return res.status(400).json({ error: "Invalid job ID" });
+    }
+
+    const result = await SavedJob.findOneAndDelete({
+      jobId: req.params.jobId,
+      userId: req.user.userId,
+    });
+
+    if (!result) {
+      return res.status(404).json({ error: "Saved job not found" });
+    }
+
+    res.json({ message: "Job unsaved successfully" });
+  } catch (error) {
+    console.error("Unsave job error:", error);
+    res.status(500).json({ error: "Server error while unsaving job" });
+  }
+});
+
+// GET /saved-jobs - Get user's saved jobs
+app.get("/saved-jobs", authenticateToken, async (req, res) => {
+  try {
+    const savedJobs = await SavedJob.find({ userId: req.user.userId })
+      .populate("jobId")
+      .sort({ savedAt: -1 });
+
+    // Filter out any saved jobs where the job was deleted
+    const validSavedJobs = savedJobs.filter((savedJob) => savedJob.jobId);
+
+    res.json(validSavedJobs);
+  } catch (error) {
+    console.error("Saved jobs fetch error:", error);
+    res.status(500).json({ error: "Server error while fetching saved jobs" });
+  }
+});
+
+// GET /check-saved/:jobId - Check if job is saved
+app.get("/check-saved/:jobId", authenticateToken, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.jobId)) {
+      return res.status(400).json({ error: "Invalid job ID" });
+    }
+
+    const savedJob = await SavedJob.findOne({
+      jobId: req.params.jobId,
+      userId: req.user.userId,
+    });
+
+    res.json({ isSaved: !!savedJob });
+  } catch (error) {
+    console.error("Check saved job error:", error);
+    res.status(500).json({ error: "Server error while checking saved job" });
+  }
+});
+
+// Error handling middleware
+app.use((error, req, res, next) => {
+  console.error("Unhandled error:", error);
+  res.status(500).json({ error: "Internal server error" });
+});
+
+// 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: "Endpoint not found" })
-})
+  res.status(404).json({ error: "Endpoint not found" });
+});
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-  console.log(`Environment: ${process.env.NODE_ENV || "development"}`)
-})
-
-// ✅ IMPROVED: Graceful shutdown
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received, shutting down gracefully")
-  mongoose.connection.close(() => {
-    console.log("MongoDB connection closed")
-    process.exit(0)
-  })
-})
+  console.log(`Server running on port ${PORT}`);
+  console.log(`MongoDB URI: ${MONGODB_URI}`);
+});

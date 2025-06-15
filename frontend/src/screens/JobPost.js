@@ -28,8 +28,27 @@ const JobPost = ({ user, onNavigate }) => {
     setLoading(true)
     setMessage("")
 
+    // Validation
+    if (
+      !formData.title.trim() ||
+      !formData.company.trim() ||
+      !formData.location.trim() ||
+      !formData.description.trim() ||
+      !formData.requirements.trim()
+    ) {
+      setMessage("Please fill in all required fields")
+      setLoading(false)
+      return
+    }
+
     try {
       const token = localStorage.getItem("auth-token")
+      if (!token) {
+        setMessage("Authentication required. Please log in again.")
+        setLoading(false)
+        return
+      }
+
       const response = await fetch(`${config.BASE_URL}${config.endpoints.jobs}`, {
         method: "POST",
         headers: {
@@ -43,6 +62,16 @@ const JobPost = ({ user, onNavigate }) => {
 
       if (response.ok) {
         setMessage("Job posted successfully!")
+        // Reset form
+        setFormData({
+          title: "",
+          company: "",
+          location: "",
+          type: "Full-time",
+          salary: "",
+          description: "",
+          requirements: "",
+        })
         setTimeout(() => {
           onNavigate("dashboard")
         }, 2000)
@@ -50,7 +79,8 @@ const JobPost = ({ user, onNavigate }) => {
         setMessage(data.error || "Failed to post job")
       }
     } catch (error) {
-      setMessage("Network error. Please try again.")
+      console.error("Job posting error:", error)
+      setMessage("Network error. Please check your connection and try again.")
     } finally {
       setLoading(false)
     }
@@ -218,14 +248,15 @@ const JobPost = ({ user, onNavigate }) => {
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Posting Job..." : "Post Job"}
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate("dashboard")}
-                className="border border-gray-300 text-gray-700 px-6 py-3 rounded-md font-medium hover:bg-gray-50"
+                disabled={loading}
+                className="border border-gray-300 text-gray-700 px-6 py-3 rounded-md font-medium hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
               </button>

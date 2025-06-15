@@ -8,6 +8,7 @@ import JobPost from "./screens/JobPost"
 import Dashboard from "./screens/Dashboard"
 import Applications from "./screens/Applications"
 import JobDetail from "./screens/JobDetail"
+import SavedJobs from "./screens/SavedJobs"
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState("login")
@@ -78,6 +79,8 @@ function App() {
         return <JobPost user={user} onNavigate={navigateTo} />
       case "applications":
         return <Applications user={user} onNavigate={navigateTo} />
+      case "saved-jobs":
+        return <SavedJobs user={user} onLogout={handleLogout} onNavigate={navigateTo} />
       default:
         return <Login onLogin={handleLogin} onNavigate={navigateTo} />
     }

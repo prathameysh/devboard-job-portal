@@ -46,6 +46,35 @@ const Applications = ({ user, onNavigate }) => {
     }
   }
 
+  const downloadResume = async (resumePath) => {
+    try {
+      const token = localStorage.getItem("auth-token")
+      const filename = resumePath.split("/").pop()
+
+      const response = await fetch(`${config.BASE_URL}/resume/${filename}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        console.error("Failed to download resume")
+      }
+    } catch (error) {
+      console.error("Error downloading resume:", error)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -133,7 +162,16 @@ const Applications = ({ user, onNavigate }) => {
                     <div className="flex justify-between items-center">
                       <div className="text-sm text-gray-600">Resume: {application.resumeFilePath.split("/").pop()}</div>
                       <div className="flex space-x-2">
-                        <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">View Resume</button>
+                        {user.role === "admin" ? (
+                          <button
+                            onClick={() => downloadResume(application.resumeFilePath)}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium bg-blue-50 px-3 py-1 rounded"
+                          >
+                            📄 Download Resume
+                          </button>
+                        ) : (
+                          <span className="text-sm text-gray-500">Resume submitted</span>
+                        )}
                         {user.role === "admin" && (
                           <button className="text-green-600 hover:text-green-800 text-sm font-medium">
                             Contact Applicant
